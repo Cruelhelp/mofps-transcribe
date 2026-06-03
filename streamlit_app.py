@@ -175,6 +175,58 @@ def write_audio_frames(frames) -> Path:
         return Path(temp_file.name)
 
 
+def frame_to_mono_float(frame) -> np.ndarray:
+    audio = frame.to_ndarray()
+    if audio.ndim == 2:
+        audio = audio.mean(axis=0)
+
+    audio = audio.astype(np.float32)
+    max_abs = np.max(np.abs(audio)) if audio.size else 0
+    if max_abs > 1:
+        audio = audio / max_abs
+
+    return audio
+
+
+def estimate_pitch_hz(audio: np.ndarray, sample_rate: int) -> float | None:
+    if audio.size < sample_rate * 0.05:
+        return None
+
+    audio = audio - np.mean(audio)
+    if np.max(np.abs(audio)) < 0.02:
+        return None
+
+    min_hz = 80
+    max_hz = 350
+    min_lag = int(sample_rate / max_hz)
+    max_lag = int(sample_rate / min_hz)
+    corr = np.correlate(audio, audio, mode="full")[audio.size - 1 :]
+
+    if max_lag >= corr.size:
+        return None
+
+    window = corr[min_lag:max_lag]
+    if window.size == 0:
+        return None
+
+    lag = int(np.argmax(window) + min_lag)
+    if lag <= 0:
+        return None
+
+    return sample_rate / lag
+
+
+def get_voice_feedback(frames) -> tuple[int, str]:
+    samples = [frame_to_mono_float(frame) for frame in frames[-12:]]
+    audio = np.concatenate(samples)
+    sample_rate = frames[-1].sample_rate
+    rms = float(np.sqrt(np.mean(audio**2))) if audio.size else 0
+    level = min(100, int(rms * 350))
+    pitch = estimate_pitch_hz(audio, sample_rate)
+    pitch_label = f"{pitch:.0f} Hz" if pitch else "No clear pitch"
+    return level, pitch_label
+
+
 def transcribe_live_stream(model_name: str, chunk_seconds: int) -> None:
     try:
         from streamlit_webrtc import WebRtcMode, webrtc_streamer
@@ -196,6 +248,8 @@ def transcribe_live_stream(model_name: str, chunk_seconds: int) -> None:
 
     transcript_box = st.empty()
     status_box = st.empty()
+    level_box = st.empty()
+    pitch_box = st.empty()
 
     if "live_transcript" not in st.session_state:
         st.session_state.live_transcript = ""
@@ -213,6 +267,8 @@ def transcribe_live_stream(model_name: str, chunk_seconds: int) -> None:
     frames = []
     chunk_started_at = time.monotonic()
     status_box.info("Listening... text updates every few seconds.")
+    level_box.progress(0, text="Voice level: waiting for microphone audio")
+    pitch_box.caption("Pitch: waiting for microphone audio")
 
     while ctx.state.playing:
         if ctx.audio_receiver is None:
@@ -220,9 +276,15 @@ def transcribe_live_stream(model_name: str, chunk_seconds: int) -> None:
             continue
 
         try:
-            frames.extend(ctx.audio_receiver.get_frames(timeout=1))
+            new_frames = ctx.audio_receiver.get_frames(timeout=1)
+            frames.extend(new_frames)
         except (TimeoutError, queue.Empty):
             continue
+
+        if frames:
+            level, pitch_label = get_voice_feedback(frames)
+            level_box.progress(level, text=f"Voice level: {level}%")
+            pitch_box.caption(f"Pitch: {pitch_label}")
 
         if time.monotonic() - chunk_started_at < chunk_seconds:
             continue
