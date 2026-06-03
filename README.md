@@ -40,7 +40,9 @@ Then choose either **Upload Recording** or **Live Microphone**.
 Upload recording options:
 
 - **Standard**: faster transcription for clear recordings and everyday use.
-- **Higher Accuracy**: better for accents, noisy rooms, and longer meetings, but slower.
+- **Advanced Accuracy**: heavier model for accents, noisy rooms, and longer meetings. Slower, but more careful.
+
+After transcription, the app shows a copy-ready transcript box, a **Copy transcript** button, and a transcript download button.
 
 Live microphone options:
 
