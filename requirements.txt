@@ -1,3 +1,4 @@
 openai-whisper
 streamlit
 imageio-ffmpeg
+streamlit-webrtc
