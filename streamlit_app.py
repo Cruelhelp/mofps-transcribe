@@ -1,5 +1,6 @@
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+import html
 import os
 import queue
 import time
@@ -7,6 +8,7 @@ import wave
 
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 
 from transcribe_audio import load_whisper_model, transcribe_audio_with_model
 
@@ -17,9 +19,9 @@ UPLOAD_MODEL_OPTIONS = {
         "model": "small",
         "description": "Faster transcription for clear recordings and everyday use.",
     },
-    "Higher Accuracy": {
+    "Advanced Accuracy": {
         "model": "medium",
-        "description": "Better for accents, noisy rooms, and longer meetings, but slower.",
+        "description": "Heavier model for accents, noisy rooms, and longer meetings. Slower, but more careful.",
     },
 }
 HOSTED_UPLOAD_MODEL_OPTIONS = {
@@ -28,6 +30,7 @@ HOSTED_UPLOAD_MODEL_OPTIONS = {
         "model": "base",
         "description": "Lighter option for free hosting. Faster, with slightly rougher wording.",
     },
+    "Advanced Accuracy": UPLOAD_MODEL_OPTIONS["Advanced Accuracy"],
 }
 LIVE_MODEL_OPTIONS = {
     "Fast Live": {
@@ -69,6 +72,81 @@ def write_uploaded_audio(uploaded_file) -> Path:
     with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
         temp_file.write(uploaded_file.getbuffer())
         return Path(temp_file.name)
+
+
+def show_copyable_transcript(transcript: str, file_stem: str) -> None:
+    st.subheader("Transcript")
+    st.text_area("Copy-ready transcript", transcript, height=360)
+
+    escaped_transcript = html.escape(transcript)
+    components.html(
+        f"""
+        <textarea id="transcript-copy-source" style="position:absolute; left:-9999px;">{escaped_transcript}</textarea>
+        <button
+            onclick="
+                const text = document.getElementById('transcript-copy-source').value;
+                navigator.clipboard.writeText(text);
+                this.innerText = 'Copied';
+                setTimeout(() => this.innerText = 'Copy transcript', 1600);
+            "
+            style="
+                width: 100%;
+                min-height: 44px;
+                border: 0;
+                border-radius: 8px;
+                background: #1f77b4;
+                color: white;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+            "
+        >
+            Copy transcript
+        </button>
+        """,
+        height=58,
+    )
+
+    st.download_button(
+        "Download transcript",
+        transcript + "\n",
+        file_name=f"{file_stem}-transcript.txt",
+        mime="text/plain",
+        use_container_width=True,
+    )
+
+
+def transcribe_with_feedback(audio_file, model_choice: dict, button_label: str) -> None:
+    if not st.button(button_label, type="primary", use_container_width=True):
+        return
+
+    audio_path = write_uploaded_audio(audio_file)
+    file_stem = Path(audio_file.name).stem
+    model_name = model_choice["model"]
+
+    try:
+        progress = st.progress(0, text="Preparing audio...")
+        with st.status("Transcribing audio", expanded=True) as status:
+            st.write(f"Selected quality: {model_name}")
+            st.write("Saving uploaded audio to a temporary file...")
+            progress.progress(20, text="Audio ready")
+
+            st.write("Loading Whisper model. First run can take longer while the model is cached.")
+            model = get_model(model_name)
+            progress.progress(50, text="Model loaded")
+
+            st.write("Running transcription. Longer recordings and advanced quality take more time.")
+            started_at = time.monotonic()
+            transcript = transcribe_audio_with_model(audio_path, model)
+            elapsed = time.monotonic() - started_at
+
+            progress.progress(100, text="Transcription complete")
+            st.write(f"Finished in {elapsed:.1f} seconds.")
+            status.update(label="Transcription complete", state="complete", expanded=False)
+
+        show_copyable_transcript(transcript, file_stem)
+    finally:
+        audio_path.unlink(missing_ok=True)
 
 
 def write_audio_frames(frames) -> Path:
@@ -174,6 +252,56 @@ def transcribe_live_stream(model_name: str, chunk_seconds: int) -> None:
 
 st.set_page_config(page_title="MOFPS Transcribe", layout="centered")
 
+st.markdown(
+    """
+    <style>
+    .block-container {
+        max-width: 760px;
+        padding-top: 1.25rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    div[data-testid="stRadio"] label,
+    div[data-testid="stSelectbox"] label,
+    div[data-testid="stFileUploader"] label,
+    div[data-testid="stAudioInput"] label {
+        font-size: 1rem;
+        font-weight: 650;
+    }
+
+    div[data-testid="stButton"] button,
+    div[data-testid="stDownloadButton"] button {
+        min-height: 46px;
+        border-radius: 8px;
+        font-weight: 650;
+    }
+
+    textarea {
+        font-size: 1rem !important;
+        line-height: 1.5 !important;
+    }
+
+    @media (max-width: 640px) {
+        .block-container {
+            padding-top: 0.75rem;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+        }
+
+        h1 {
+            font-size: 1.8rem !important;
+        }
+
+        div[data-testid="stRadio"] div[role="radiogroup"] {
+            gap: 0.35rem;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title("MOFPS Transcribe")
 st.caption("Transcribe uploaded audio or record from your microphone.")
 
@@ -221,22 +349,4 @@ else:
 
 if audio_file:
     st.audio(audio_file)
-
-    if st.button(button_label, type="primary"):
-        audio_path = write_uploaded_audio(audio_file)
-
-        try:
-            with st.spinner("Loading Whisper and transcribing audio..."):
-                model = get_model(model_choice["model"])
-                transcript = transcribe_audio_with_model(audio_path, model)
-
-            st.subheader("Transcript")
-            st.text_area("Transcript text", transcript, height=300)
-            st.download_button(
-                "Download transcript",
-                transcript + "\n",
-                file_name=f"{Path(audio_file.name).stem}-transcript.txt",
-                mime="text/plain",
-            )
-        finally:
-            audio_path.unlink(missing_ok=True)
+    transcribe_with_feedback(audio_file, model_choice, button_label)
