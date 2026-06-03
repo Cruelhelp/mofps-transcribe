@@ -49,6 +49,14 @@ Live microphone options:
 
 Live microphone mode streams audio from the browser and transcribes it in short chunks when running locally. On Hugging Face free Spaces, microphone streaming may fail because WebRTC needs network support that the hosted proxy does not reliably provide, so the hosted app falls back to transcribing a recorded microphone clip.
 
+For hosted near-live microphone streaming on Railway, add TURN server variables if the browser says the connection is taking too long:
+
+```text
+TURN_URL=turn:your_turn_server:3478
+TURN_USERNAME=your_turn_username
+TURN_CREDENTIAL=your_turn_password
+```
+
 ## Railway Deployment
 
 Railway can run this app as a long-lived Streamlit service.
