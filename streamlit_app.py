@@ -7,7 +7,6 @@ import wave
 
 import numpy as np
 import streamlit as st
-from streamlit_webrtc import WebRtcMode, webrtc_streamer
 
 from transcribe_audio import load_whisper_model, transcribe_audio_with_model
 
@@ -84,6 +83,15 @@ def write_audio_frames(frames) -> Path:
 
 
 def transcribe_live_stream(model_name: str, chunk_seconds: int) -> None:
+    try:
+        from streamlit_webrtc import WebRtcMode, webrtc_streamer
+    except ImportError:
+        st.warning(
+            "Near-live microphone streaming is not installed in this deployment. "
+            "Use Upload Recording or record a microphone clip instead."
+        )
+        return
+
     ctx = webrtc_streamer(
         key="near-live-transcription",
         mode=WebRtcMode.SENDONLY,
