@@ -1,0 +1,8 @@
+.ffmpeg-bin/
+.python313/
+__pycache__/
+*.pyc
+*.log
+.streamlit/
+.whisper-cache/
+.env
