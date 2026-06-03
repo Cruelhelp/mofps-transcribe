@@ -39,14 +39,29 @@ LIVE_MODEL_OPTIONS = {
         "description": "Still quick, with better wording than Fast Live.",
     },
 }
-RTC_CONFIGURATION = {
-    "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}],
-}
-
 
 @st.cache_resource
 def get_model(model_name: str):
     return load_whisper_model(model_name)
+
+
+def get_rtc_configuration() -> dict:
+    ice_servers = [
+        {"urls": ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478"]},
+    ]
+
+    turn_url = os.environ.get("TURN_URL")
+    turn_username = os.environ.get("TURN_USERNAME")
+    turn_credential = os.environ.get("TURN_CREDENTIAL")
+
+    if turn_url:
+        turn_server = {"urls": [turn_url]}
+        if turn_username and turn_credential:
+            turn_server["username"] = turn_username
+            turn_server["credential"] = turn_credential
+        ice_servers.append(turn_server)
+
+    return {"iceServers": ice_servers}
 
 
 def write_uploaded_audio(uploaded_file) -> Path:
@@ -95,7 +110,7 @@ def transcribe_live_stream(model_name: str, chunk_seconds: int) -> None:
     ctx = webrtc_streamer(
         key="near-live-transcription",
         mode=WebRtcMode.SENDONLY,
-        rtc_configuration=RTC_CONFIGURATION,
+        rtc_configuration=get_rtc_configuration(),
         media_stream_constraints={"video": False, "audio": True},
         audio_receiver_size=1024,
         sendback_audio=False,
