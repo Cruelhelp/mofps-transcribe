@@ -15,4 +15,4 @@ ENV WHISPER_CACHE_DIR=/app/.whisper-cache
 
 EXPOSE 7860
 
-CMD ["python", "-m", "streamlit", "run", "streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "7860", "--server.enableCORS", "false", "--server.enableXsrfProtection", "false"]
+CMD python -m streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port ${PORT:-7860} --server.enableCORS false --server.enableXsrfProtection false
