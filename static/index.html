@@ -33,6 +33,12 @@
       <button id="upload-transcribe" class="primary" disabled>Transcribe recording</button>
     </section>
 
+    <section class="helper-settings">
+      <label for="glossary">Names and correction helper</label>
+      <textarea id="glossary" placeholder="One important name or term per line&#10;M O F P S => MOFPS&#10;misheard wording => correct wording"></textarea>
+      <p class="helper">Important terms guide Whisper. Use <strong>misheard =&gt; correct</strong> for recurring corrections.</p>
+    </section>
+
     <section id="live-panel" hidden>
       <label for="live-quality">Live quality</label>
       <select id="live-quality">
@@ -66,6 +72,7 @@
       <div class="actions">
         <button id="copy">Copy transcript</button>
         <button id="download">Download</button>
+        <button id="refine">Polish transcript</button>
         <button id="clear">Clear</button>
       </div>
     </section>
@@ -73,3 +80,5 @@
   <script src="/static/app.js"></script>
 </body>
 </html>
+
+
