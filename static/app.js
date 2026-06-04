@@ -43,7 +43,8 @@ $("upload-transcribe").addEventListener("click", async () => {
   const data = new FormData();
   data.append("file", file);
   data.append("quality", $("upload-quality").value);
-  setStatus("Uploading and transcribing. Advanced Accuracy can take several minutes.", true);
+  data.append("glossary", $("glossary").value);
+  setStatus("Uploading and transcribing.", true);
   $("upload-transcribe").disabled = true;
   try {
     const response = await fetch("/api/transcribe", { method: "POST", body: data });
@@ -120,6 +121,7 @@ async function startLive() {
     socket.send(JSON.stringify({
       quality: $("live-quality").value,
       chunk_seconds: Number($("chunk-seconds").value),
+      glossary: $("glossary").value,
     }));
   };
   socket.onmessage = (event) => {
@@ -215,3 +217,30 @@ $("clear").addEventListener("click", () => {
   transcript.value = "";
   setStatus("Transcript cleared");
 });
+
+$("refine").addEventListener("click", async () => {
+  if (!transcript.value.trim()) return;
+  $("refine").disabled = true;
+  setStatus("Polishing transcript...", true);
+  try {
+    const response = await fetch("/api/refine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: transcript.value, glossary: $("glossary").value }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not polish transcript");
+    transcript.value = result.text;
+    setStatus("Transcript polished");
+  } catch (error) {
+    setStatus(error.message);
+  } finally {
+    $("refine").disabled = false;
+    spinner.hidden = true;
+  }
+});
+
+
+
+
+
