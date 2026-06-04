@@ -9,6 +9,7 @@ Mobile-focused local transcription using Faster-Whisper.
 - Near-live microphone transcription over secure WebSockets.
 - Voice-level and pitch feedback in the browser.
 - Copy and download complete transcripts.
+- Transcript helper with custom names, hotwords, correction pairs, and conservative sentence cleanup.
 
 ## Local Setup
 
@@ -36,9 +37,9 @@ This does not use WebRTC, STUN, or TURN.
 Railway runs the app using `start.sh` and checks `/health`.
 
 Recommended variables:
-
 ```text
 WHISPER_CACHE_DIR=/data/whisper-models
+WHISPER_DEVICE=cpu
 OMP_NUM_THREADS=2
 MAX_LIVE_SESSIONS=1
 ```
@@ -49,12 +50,28 @@ are held in process memory.
 
 ## Models
 
-- **Fast Live**: `tiny`
-- **Clear Live**: `base`
-- **Standard Upload**: `small`
-- **Advanced Accuracy Upload**: `medium`
+- **Fast Live**: `base`
+- **Clear Live**: `medium`
+- **Standard Upload**: `large`
+- **Advanced Accuracy Upload**: `large-v2`
 
 Live audio is buffered in a bounded queue while Whisper transcribes. If the
 server falls behind, old queued audio is discarded so the transcript stays
 near-live instead of accumulating an ever-growing delay. Pressing Stop flushes
 the final partial audio chunk before closing the microphone connection.
+
+## Transcript Helper
+
+Add important names and terms one per line so Whisper is more likely to select
+them while recognizing speech. Add recurring correction pairs with:
+
+```text
+M O F P S => MOFPS
+misheard wording => correct wording
+```
+
+Whisper uses the correct-side terms as hotwords. The server-side polishing pass
+then applies explicit corrections, removes accidental repeated words/sentences,
+and normalizes capitalization and ending punctuation without rewriting meaning.
+
+
