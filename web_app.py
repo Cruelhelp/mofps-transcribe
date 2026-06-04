@@ -292,6 +292,10 @@ async def live_transcription(websocket: WebSocket):
         chunk_seconds = min(8, max(3, int(config.get("chunk_seconds", 4))))
 
         await websocket.send_json(
+            {"type": "status", "message": f"Loading {model_name} live model..."}
+        )
+        await asyncio.to_thread(get_model, model_name)
+        await websocket.send_json(
             {"type": "ready", "message": f"Live model ready: {model_name}"}
         )
         receiver = asyncio.create_task(
