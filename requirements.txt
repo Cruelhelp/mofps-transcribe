@@ -1,4 +1,4 @@
-openai-whisper
-streamlit
-imageio-ffmpeg
-streamlit-webrtc
+fastapi
+faster-whisper
+python-multipart
+uvicorn[standard]
