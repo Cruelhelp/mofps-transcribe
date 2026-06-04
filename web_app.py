@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import tempfile
 import threading
 from pathlib import Path
@@ -10,14 +11,16 @@ from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconn
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from faster_whisper import WhisperModel
+from pydantic import BaseModel
 
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 SAMPLE_RATE = 16000
-LIVE_MODELS = {"fast": "tiny", "clear": "base"}
-UPLOAD_MODELS = {"standard": "small", "advanced": "medium"}
+LIVE_MODELS = {"fast": "base", "clear": "medium"}
+UPLOAD_MODELS = {"standard": "large", "advanced": "large-v2"}
 MODEL_CACHE_DIR = os.environ.get("WHISPER_CACHE_DIR")
+DEFAULT_WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
 MAX_LIVE_SECONDS = int(os.environ.get("MAX_LIVE_SECONDS", str(45 * 60)))
 MAX_LIVE_MESSAGE_BYTES = 256 * 1024
@@ -46,12 +49,64 @@ _active_live_sessions = 0
 _active_uploads = 0
 
 
+class RefineRequest(BaseModel):
+    text: str
+    glossary: str = ""
+
+
+def parse_glossary(glossary: str) -> tuple[list[str], list[tuple[str, str]]]:
+    terms = []
+    corrections = []
+    for raw_line in glossary.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "=>" in line:
+            wrong, correct = (part.strip() for part in line.split("=>", 1))
+            if wrong and correct:
+                corrections.append((wrong, correct))
+                terms.append(correct)
+        else:
+            terms.append(line)
+    return terms[:100], corrections[:100]
+
+
+def refine_transcript(text: str, glossary: str = "") -> str:
+    """Conservatively clean transcript structure without inventing new wording."""
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+
+    _, corrections = parse_glossary(glossary)
+    for wrong, correct in corrections:
+        text = re.sub(rf"\b{re.escape(wrong)}\b", correct, text, flags=re.IGNORECASE)
+
+    # Collapse accidental repeated words and repeated adjacent sentences.
+    text = re.sub(r"\b(\w+)(?:\s+\1\b){2,}", r"\1", text, flags=re.IGNORECASE)
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    cleaned = []
+    previous = ""
+    for sentence in sentences:
+        sentence = sentence.strip(" ,")
+        if not sentence:
+            continue
+        normalized = re.sub(r"[^a-z0-9]+", " ", sentence.lower()).strip()
+        if normalized and normalized == previous:
+            continue
+        previous = normalized
+        sentence = sentence[0].upper() + sentence[1:]
+        if sentence[-1] not in ".!?":
+            sentence += "."
+        cleaned.append(sentence)
+    return " ".join(cleaned)
+
+
 def get_model(model_name: str) -> WhisperModel:
     with _model_lock:
         if model_name not in _models:
             _models.clear()
             options = {
-                "device": "cpu",
+                "device": DEFAULT_WHISPER_DEVICE,
                 "compute_type": "int8",
                 "cpu_threads": max(1, int(os.environ.get("OMP_NUM_THREADS", "2"))),
             }
@@ -61,17 +116,34 @@ def get_model(model_name: str) -> WhisperModel:
         return _models[model_name]
 
 
-def transcribe_input(audio, model_name: str, vad_filter: bool = True) -> str:
+def transcribe_input(
+    audio,
+    model_name: str,
+    vad_filter: bool = True,
+    glossary: str = "",
+) -> str:
     # Model loading and inference share one lock to prevent memory spikes on small hosts.
     with _inference_lock:
         model = get_model(model_name)
+        terms, _ = parse_glossary(glossary)
+        hotwords = ", ".join(terms)
         segments, _ = model.transcribe(
             audio,
-            beam_size=1,
+            language="en",
+            task="transcribe",
+            beam_size=5,
             vad_filter=vad_filter,
             condition_on_previous_text=False,
+            initial_prompt=(
+                f"Use these names and terms when spoken: {hotwords}." if hotwords else None
+            ),
+            hotwords=hotwords or None,
+            repetition_penalty=1.15,
+            no_repeat_ngram_size=3,
+            hallucination_silence_threshold=1.0,
         )
-        return " ".join(segment.text.strip() for segment in segments).strip()
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        return refine_transcript(text, glossary)
 
 
 def append_without_overlap(existing: str, new_text: str) -> str:
@@ -129,10 +201,18 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/api/refine")
+async def refine(request: RefineRequest):
+    if len(request.text) > 500_000 or len(request.glossary) > 10_000:
+        return JSONResponse({"error": "Transcript or glossary is too large."}, status_code=413)
+    return {"text": refine_transcript(request.text, request.glossary)}
+
+
 @app.post("/api/transcribe")
 async def transcribe_upload(
     file: UploadFile = File(...),
     quality: str = Form("standard"),
+    glossary: str = Form(""),
 ):
     model_name = UPLOAD_MODELS.get(quality)
     suffix = Path(file.filename or "").suffix.lower()
@@ -160,7 +240,9 @@ async def transcribe_upload(
                     )
                 temp_file.write(chunk)
 
-        text = await asyncio.to_thread(transcribe_input, str(temp_path), model_name)
+        text = await asyncio.to_thread(
+            transcribe_input, str(temp_path), model_name, True, glossary
+        )
         return {"text": text}
     except Exception:
         return JSONResponse(
@@ -232,6 +314,7 @@ async def process_live_audio(
     stop_event: asyncio.Event,
     model_name: str,
     chunk_samples: int,
+    glossary: str,
 ) -> None:
     transcript = ""
     audio_buffer = np.empty(0, dtype=np.float32)
@@ -245,9 +328,10 @@ async def process_live_audio(
                 await websocket.send_json({"type": "status", "message": "Listening..."})
             return
         await websocket.send_json({"type": "status", "message": "Transcribing..."})
-        text = await asyncio.to_thread(transcribe_input, chunk, model_name, False)
+        text = await asyncio.to_thread(transcribe_input, chunk, model_name, False, glossary)
         if text:
             transcript = append_without_overlap(transcript, text)
+            transcript = refine_transcript(transcript, glossary)
             await websocket.send_json({"type": "transcript", "text": transcript})
         if not final:
             await websocket.send_json({"type": "status", "message": "Listening..."})
@@ -290,6 +374,7 @@ async def live_transcription(websocket: WebSocket):
         config = json.loads(config_message)
         model_name = LIVE_MODELS.get(config.get("quality"), LIVE_MODELS["fast"])
         chunk_seconds = min(8, max(3, int(config.get("chunk_seconds", 4))))
+        glossary = str(config.get("glossary", ""))[:10_000]
 
         await websocket.send_json(
             {"type": "status", "message": f"Loading {model_name} live model..."}
@@ -308,6 +393,7 @@ async def live_transcription(websocket: WebSocket):
                 stop_event,
                 model_name,
                 SAMPLE_RATE * chunk_seconds,
+                glossary,
             )
         )
         await receiver
@@ -324,3 +410,7 @@ async def live_transcription(websocket: WebSocket):
             pass
     finally:
         release_live_session()
+
+
+
+
