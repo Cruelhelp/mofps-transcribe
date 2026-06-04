@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#147d75">
+  <title>MOFPS Transcribe</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>MOFPS Transcribe</h1>
+      <p>Transcribe recordings or see words appear while you speak.</p>
+    </header>
+
+    <nav class="mode-switch" aria-label="Transcription mode">
+      <button class="mode active" data-mode="upload">Upload</button>
+      <button class="mode" data-mode="live">Live</button>
+    </nav>
+
+    <section id="upload-panel">
+      <label for="upload-quality">Transcription quality</label>
+      <select id="upload-quality">
+        <option value="standard">Standard - clear recordings</option>
+        <option value="advanced">Advanced Accuracy - slower, more careful</option>
+      </select>
+      <label class="file-picker" for="audio-file">
+        <span>Select audio or video</span>
+        <input id="audio-file" type="file" accept="audio/*,video/*">
+      </label>
+      <audio id="audio-preview" controls hidden></audio>
+      <button id="upload-transcribe" class="primary" disabled>Transcribe recording</button>
+    </section>
+
+    <section id="live-panel" hidden>
+      <label for="live-quality">Live quality</label>
+      <select id="live-quality">
+        <option value="fast">Fast Live - quickest response</option>
+        <option value="clear">Clear Live - better wording</option>
+      </select>
+      <label for="chunk-seconds">Update interval</label>
+      <select id="chunk-seconds">
+        <option value="3">Every 3 seconds</option>
+        <option value="4" selected>Every 4 seconds</option>
+        <option value="5">Every 5 seconds</option>
+      </select>
+      <div class="meter-row">
+        <div>
+          <span class="meter-label">Voice level</span>
+          <div class="meter"><div id="level-fill"></div></div>
+        </div>
+        <div class="pitch"><span>Pitch</span><strong id="pitch-value">Waiting</strong></div>
+      </div>
+      <button id="live-toggle" class="primary">Start live transcription</button>
+    </section>
+
+    <section class="status-area" aria-live="polite">
+      <div id="spinner" class="spinner" hidden></div>
+      <p id="status">Ready</p>
+    </section>
+
+    <section class="transcript-section">
+      <label for="transcript">Transcript</label>
+      <textarea id="transcript" placeholder="Your transcript will appear here."></textarea>
+      <div class="actions">
+        <button id="copy">Copy transcript</button>
+        <button id="download">Download</button>
+        <button id="clear">Clear</button>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
