@@ -1,100 +1,60 @@
----
-title: MOFPS Transcribe
-sdk: docker
-app_file: app.py
-app_port: 7860
----
+# MOFPS Transcribe
 
-# Audio Transcription
+Mobile-focused local transcription using Faster-Whisper.
 
-This project uses OpenAI Whisper for local audio transcription.
+## Features
 
-Hosted app:
+- Upload audio or video and transcribe it.
+- Standard and Advanced Accuracy upload modes.
+- Near-live microphone transcription over secure WebSockets.
+- Voice-level and pitch feedback in the browser.
+- Copy and download complete transcripts.
 
-```text
-https://ruelmcneil-mofps-transcribe.hf.space
-```
-
-## Setup
+## Local Setup
 
 ```powershell
 .\.python313\python.exe -m pip install -r requirements.txt
+.\.python313\python.exe -m uvicorn web_app:app --host 0.0.0.0 --port 8502
 ```
 
-The app uses `imageio-ffmpeg` so Whisper can find a local `ffmpeg` executable.
-
-## Browser UI
-
-```powershell
-.\.python313\python.exe -m streamlit run .\streamlit_app.py --server.port 8502
-```
-
-If uploads fail behind a hosted proxy, run Streamlit with:
-
-```powershell
-.\.python313\python.exe -m streamlit run .\streamlit_app.py --server.port 8502 --server.enableCORS false --server.enableXsrfProtection false
-```
-
-Then choose either **Upload Recording** or **Live Microphone**.
-
-Upload recording options:
-
-- **Standard**: faster transcription for clear recordings and everyday use.
-- **Advanced Accuracy**: heavier model for accents, noisy rooms, and longer meetings. Slower, but more careful.
-
-After transcription, the app shows a copy-ready transcript box, a **Copy transcript** button, and a transcript download button.
-
-Live microphone options:
-
-- **Fast Live**: fastest response for quick notes, with more transcription mistakes.
-- **Clear Live**: still quick, with better wording than Fast Live.
-
-Live microphone mode streams audio from the browser and transcribes it in short chunks when running locally. On Hugging Face free Spaces, microphone streaming may fail because WebRTC needs network support that the hosted proxy does not reliably provide, so the hosted app falls back to transcribing a recorded microphone clip.
-
-When live microphone streaming connects, the app shows a voice level meter and estimated pitch so you can confirm the microphone is being picked up.
-
-For hosted near-live microphone streaming on Railway, add TURN server variables if the browser says the connection is taking too long:
+Open:
 
 ```text
-TURN_URL=turn:your_turn_server:3478
-TURN_USERNAME=your_turn_username
-TURN_CREDENTIAL=your_turn_password
+http://localhost:8502
 ```
+
+## How Live Mode Works
+
+The browser captures microphone audio with an AudioWorklet, converts it to mono
+16 kHz PCM, and sends it over a same-origin WebSocket. The server transcribes
+short overlapping chunks with Faster-Whisper and returns updated text.
+
+This does not use WebRTC, STUN, or TURN.
 
 ## Railway Deployment
 
-Railway can run this app as a long-lived Streamlit service.
+Railway runs the app using `start.sh` and checks `/health`.
 
-Before deploying, make sure these files are committed:
-
-- `streamlit_app.py`
-- `transcribe_audio.py`
-- `requirements.txt`
-- `railway.json`
-- `.python-version`
-
-Do not commit the local `.python313` folder or generated log files.
-
-For faster cold starts after redeploys, attach a Railway volume and set:
+Recommended variables:
 
 ```text
-WHISPER_CACHE_DIR=/data/whisper-cache
+WHISPER_CACHE_DIR=/data/whisper-models
+OMP_NUM_THREADS=2
+MAX_LIVE_SESSIONS=1
 ```
 
-## Command-Line Usage
+Attach a Railway volume at `/data` to preserve downloaded model files between
+deployments. Use one replica because the Faster-Whisper model and live sessions
+are held in process memory.
 
-```powershell
-.\.python313\python.exe .\transcribe_audio.py .\audio-file.mp3
-```
+## Models
 
-Save the transcript to a text file:
+- **Fast Live**: `tiny`
+- **Clear Live**: `base`
+- **Standard Upload**: `small`
+- **Advanced Accuracy Upload**: `medium`
 
-```powershell
-.\.python313\python.exe .\transcribe_audio.py .\audio-file.mp3 -o .\transcript.txt
-```
-
-Use a different model:
-
-```powershell
-.\.python313\python.exe .\transcribe_audio.py .\audio-file.mp3 --model medium
-```
+Live audio is buffered in a bounded queue while Whisper transcribes. If the
+server falls behind, old queued audio is discarded so the transcript stays
+near-live instead of accumulating an ever-growing delay. Pressing Stop flushes
+the final partial audio chunk before closing the microphone connection.
