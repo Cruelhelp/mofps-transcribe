@@ -27,6 +27,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .file-picker input { display: none; }
 audio { width: 100%; margin-top: 12px; }
 textarea { min-height: 280px; resize: vertical; line-height: 1.5; }
+.helper-settings textarea { min-height: 130px; }
+.helper { color: #52635f; font-size: .9rem; margin: 7px 0 0; }
 .actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px; }
 .status-area { min-height: 44px; display: flex; align-items: center; gap: 10px; }
 .spinner { width: 22px; height: 22px; border: 3px solid #c9d4d1; border-top-color: #147d75; border-radius: 50%; animation: spin .8s linear infinite; }
