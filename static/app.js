@@ -11,6 +11,7 @@ let liveRunning = false;
 let worklet;
 let lastMeterUpdate = 0;
 let stopResolver;
+let serverReady = false;
 
 function setStatus(text, busy = false) {
   statusText.textContent = text;
@@ -129,13 +130,17 @@ async function startLive() {
       return;
     }
     if (message.type === "transcript") transcript.value = message.text;
+    if (message.type === "ready") serverReady = true;
     if (message.type === "ready_to_stop" && stopResolver) stopResolver();
-    setStatus(message.message || "Listening...", message.type === "status" && message.message === "Transcribing...");
+    const busy = message.type === "status" && (
+      message.message === "Transcribing..." || message.message.startsWith("Loading ")
+    );
+    setStatus(message.message || "Listening...", busy);
   };
   socket.onerror = () => setStatus("Live connection failed. Please restart live mode.");
   socket.onclose = () => liveRunning && setStatus("Live connection closed. Please restart live mode.");
   worklet.port.onmessage = (event) => {
-    if (socket.readyState === WebSocket.OPEN && socket.bufferedAmount < 512 * 1024) {
+    if (serverReady && socket.readyState === WebSocket.OPEN && socket.bufferedAmount < 512 * 1024) {
       socket.send(event.data);
     }
   };
@@ -169,6 +174,7 @@ async function stopLive() {
   analyser = null;
   worklet = null;
   stopResolver = null;
+  serverReady = false;
   $("level-fill").style.width = "0";
   $("pitch-value").textContent = "Waiting";
   $("live-toggle").textContent = "Start live transcription";
