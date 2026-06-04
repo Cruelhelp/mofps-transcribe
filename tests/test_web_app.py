@@ -1,12 +1,18 @@
 import json
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 import web_app
 
 
 client = TestClient(web_app.app)
+
+
+@pytest.fixture(autouse=True)
+def avoid_model_downloads(monkeypatch):
+    monkeypatch.setattr(web_app, "get_model", lambda model_name: object())
 
 
 def test_health_does_not_load_model():
@@ -47,6 +53,7 @@ def test_live_websocket_accepts_silent_pcm_without_loading_model():
 
     with client.websocket_connect("/ws/live") as websocket:
         websocket.send_text(json.dumps({"quality": "fast", "chunk_seconds": 3}))
+        assert websocket.receive_json()["message"] == "Loading tiny live model..."
         assert websocket.receive_json()["type"] == "ready"
 
         silence = np.zeros(48000, dtype=np.int16)
@@ -67,6 +74,7 @@ def test_live_websocket_flushes_final_audio(monkeypatch):
 
     with client.websocket_connect("/ws/live") as websocket:
         websocket.send_text(json.dumps({"quality": "fast", "chunk_seconds": 4}))
+        assert websocket.receive_json()["message"] == "Loading tiny live model..."
         assert websocket.receive_json()["type"] == "ready"
         speech = np.full(16000, 12000, dtype=np.int16)
         websocket.send_bytes(speech.tobytes())
